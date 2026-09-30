@@ -1,0 +1,7 @@
+com\jonathan\gamestore\catalog\dto\GameRequest.class
+com\jonathan\gamestore\catalog\repository\GameRepository.class
+com\jonathan\gamestore\catalog\service\GameService.class
+com\jonathan\gamestore\catalog\controller\GameController.class
+com\jonathan\gamestore\catalog\model\Game$GameBuilder.class
+com\jonathan\gamestore\catalog\CatalogServiceApplication.class
+com\jonathan\gamestore\catalog\model\Game.class
