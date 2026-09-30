@@ -1,361 +1,396 @@
-# Catalog Service (catalog-service)
+# Catalog Service
 
-> **Microservicio de Gestion de Catalogo de Videojuegos, Fichas Tecnicas, Inventario y Precios Oficiales.**  
-> Desarrollado con **Java 17**, **Spring Boot 4**, **Spring Data MongoDB (NoSQL)** y **Spring Cloud Netflix Eureka**.
+> Microservicio de **catálogo de videojuegos, inventario NoSQL y gestión de precios oficiales**, construido sobre una arquitectura de microservicios con Spring Cloud y MongoDB.
 
----
-### Ecosistema de Microservicios en GitHub
-Este microservicio forma parte de una arquitectura distribuida compuesta por los siguientes repositorios interconectados:
-* **Directorio de Servicios (Service Discovery):** [`eureka-server`](https://github.com/Alger125/eureka-server) (Puerto `8761`)
-* **Catalogo e Inventario NoSQL (MongoDB):** [`catalog-service`](https://github.com/Alger125/catalog-service) (Puerto `8082`) *(Este repositorio)*
-* **Ventas y Facturacion SQL (H2/JPA):** [`sales-service`](https://github.com/Alger125/sales-service) (Puerto `8081`)
+![Java](https://img.shields.io/badge/Java-17-orange)
+![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.1-brightgreen)
+![Spring Cloud](https://img.shields.io/badge/Spring%20Cloud-2025.1.3-blue)
+![MongoDB](https://img.shields.io/badge/MongoDB-7.0-green)
+![Build](https://img.shields.io/badge/Build-Maven-red)
 
 ---
 
----
+## Tabla de contenido
 
-## 1. Introduccion y Justificacion de Persistencia NoSQL
-
-Una de las decisiones arquitectonicas primordiales en el ecosistema es:  
-**¿Por que catalog-service utiliza MongoDB (NoSQL) mientras sales-service utiliza SQL relacional?**
-
-### Flexibilidad de Esquema (Schema-less)
-* Los videojuegos presentan estructuras heterogeneas: compatibilidad de hardware, clasificaciones por edades, soporte multilenguaje, listas dinamicas de plataformas (`List<String>`) y complementos descargables (DLCs).
-* **MongoDB** almacena la informacion como documentos BSON (formato JSON binario). Esto permite agregar o modificar propiedades tecnicas de un juego sin necesidad de ejecutar sentencias bloqueantes de migracion (`ALTER TABLE`) como ocurre en bases relacionales tradicionales.
-
-### Fuente Unica de la Verdad (Source of Truth)
-* `catalog-service` es el propietario exclusivo de las fichas tecnicas, existencias en almacen y **precios oficiales**.
-* Ningun microservicio externo tiene permitido alterar de forma directa la coleccion de MongoDB; todas las consultas y modificaciones deben canalizarse a traves de su interfaz RESTful.
-
----
-
-## 2. Diagrama de Comunicacion en la Arquitectura
-
-```
-                                  +-----------------------------+
-                                  |        EUREKA SERVER        |
-                                  |   (Directorio Central)      |
-                                  |         Puerto 8761         |
-                                  +--------------+--------------+
-                                                 |
-                          +----------------------+----------------------+
-                          | 1. Heartbeat ("Estoy vivo en 8081")         | 1. Heartbeat ("Estoy vivo en 8082")
-                          v                                             v
-            +---------------------------+                 +---------------------------+
-            |       SALES-SERVICE       |                 |      CATALOG-SERVICE      |
-            |        Puerto 8081        |                 |        Puerto 8082        |
-            |     Base de Datos H2      |                 |    Base de Datos Mongo    |
-            |   (Transacciones SQL)     |                 |     (Catalogo NoSQL)      |
-            +-------------+-------------+                 +-------------+-------------+
-                          |                                             ^
-                          | 2. Consulta de Precios y Stock (OpenFeign)  |
-                          |    GET /api/games/{id}                      |
-                          +---------------------------------------------+
-```
+1. [Resumen del proyecto](#1-resumen-del-proyecto)
+2. [Stack tecnológico y por qué se eligió](#2-stack-tecnológico-y-por-qué-se-eligió)
+3. [Ecosistema de microservicios](#3-ecosistema-de-microservicios)
+4. [Decisiones de arquitectura](#4-decisiones-de-arquitectura)
+5. [Arquitectura interna por capas](#5-arquitectura-interna-por-capas)
+6. [Flujo del ciclo de vida de un videojuego](#6-flujo-del-ciclo-de-vida-de-un-videojuego)
+7. [Estructura del proyecto](#7-estructura-del-proyecto)
+8. [Modelo de datos NoSQL](#8-modelo-de-datos-nosql)
+9. [Referencia de la API (CRUD completo)](#9-referencia-de-la-api-crud-completo)
+10. [Manejo de errores](#10-manejo-de-errores)
+11. [Configuración](#11-configuración)
+12. [Instalación y ejecución](#12-instalación-y-ejecución)
+13. [Guía de pruebas](#13-guía-de-pruebas)
+14. [Solución de problemas](#14-solución-de-problemas)
+15. [Mejoras futuras](#15-mejoras-futuras)
 
 ---
 
-## 3. Arquitectura Interna por Capas (Clean Architecture)
+## 1. Resumen del proyecto
 
-El microservicio desacopla estrictamente sus responsabilidades siguiendo el patron arquitectonico por capas:
+`catalog-service` es la **fuente única de la verdad** para todo lo relacionado con los productos de la tienda de videojuegos:
 
-```
-[Peticion HTTP Externa o desde Sales-Service]
-                       | 1. Llega al endpoint /api/games
-                       v
-+-------------------------------------------------------------+
-| 1. CAPA CONTROLADOR: GameController                         |
-|    - Expone los endpoints REST                              |
-|    - Valida los datos entrantes mediante @Valid y Bean Valid.|
-|    - Retorna codigos HTTP estandar (200, 201, 204, 404)     |
-+-----------------------------+-------------------------------+
-                               | 2. Invoca metodos del servicio
-                               v
-+-------------------------------------------------------------+
-| 2. CAPA SERVICIO: GameService                               |
-|    - Contiene las reglas de negocio del catalogo            |
-|    - Aplica Soft Delete (desactivacion logica active=false) |
-|    - Gestiona conversiones de DTO a entidad de dominio      |
-+-----------------------------+-------------------------------+
-                               | 3. Solicita persistencia
-                               v
-+-------------------------------------------------------------+
-| 3. CAPA REPOSITORIO: GameRepository (MongoRepository)       |
-|    - Interfaz de persistencia NoSQL                         |
-|    - Genera consultas derivadas automaticas                 |
-+-----------------------------+-------------------------------+
-                               | 4. Lectura/Escritura BSON
-                               v
-+-------------------------------------------------------------+
-| 4. BASE DE DATOS: MongoDB (Coleccion "games")               |
-+-------------------------------------------------------------+
+| Responsabilidad | Descripción |
+|---|---|
+| Administración de catálogo | Alta, edición, consulta y borrado lógico de videojuegos. |
+| Control de inventario | Gestión del stock disponible en almacén para cada título. |
+| Precios oficiales | Custodia el precio unitario real que valida `sales-service` para evitar fraudes. |
+| Clasificación y búsqueda | Filtros por género (RPG, Acción, etc.) y consulta de juegos activos. |
+| Integridad histórica (Soft Delete) | Desactiva juegos sin destruirlos físicamente, preservando el histórico de compras. |
+
+**¿Por qué existe como servicio independiente?** El catálogo es un servicio con alta frecuencia de lectura y baja frecuencia de escritura que no debe colapsar si el motor de pagos o ventas se satura. Su esquema flexible y desacoplado permite evolucionar las fichas técnicas sin impactar la base de datos de facturación.
+
+---
+
+## 2. Stack tecnológico y por qué se eligió
+
+| Tecnología | Versión | Función | ¿Por qué se usa? |
+|---|---|---|---|
+| Java | 17 | Lenguaje | Soporte LTS y `record` para DTOs concisos e inmutables. |
+| Spring Boot | 4.1.1 | Framework base | Autoconfiguración y servidor Tomcat embebido: menos código repetitivo. |
+| Spring Data MongoDB | (BOM de Boot) | Persistencia NoSQL | Abstracción de repositorios y mapeo automático objeto-documento (BSON). |
+| MongoDB | 7.0 | Base de datos de documentos | Esquema dinámico ideal para plataformas, géneros y especificaciones variables. |
+| Spring Cloud Netflix Eureka Client | 2025.1.3 | Descubrimiento de servicios | Publica el servicio como `CATALOG-SERVICE` en el registro central sin IPs fijas. |
+| Bean Validation | (BOM de Boot) | Validación estructural | Valida precios positivos, títulos no vacíos y stocks válidos antes de persistir. |
+| Lombok | (BOM de Boot) | Reducción de boilerplate | Genera builders, getters y constructores transparentemente. |
+| Maven Wrapper | — | Herramienta de compilación | Compilación uniforme garantizada en cualquier estación de trabajo. |
+
+---
+
+## 3. Ecosistema de microservicios
+
+Este servicio interactúa dentro del ecosistema distribuido compuesto por:
+
+| Servicio | Puerto | Base de datos | Rol | Repositorio |
+|---|---|---|---|---|
+| `eureka-server` | 8761 | — | Directorio de servicios (Service Discovery) | [Alger125/eureka-server](https://github.com/Alger125/eureka-server) |
+| `catalog-service` | 8082 | MongoDB | Catálogo e inventario de videojuegos | *(este repositorio)* |
+| `sales-service` | 8081 | H2 (SQL) | Ventas y facturación | [Alger125/sales-service](https://github.com/Alger125/sales-service) |
+
+### Diagrama de comunicación
+
+```mermaid
+flowchart TB
+    EUR["Eureka Server<br/>:8761"]
+    CAT["Catalog Service<br/>:8082<br/>MongoDB"]
+    SALES["Sales Service<br/>:8081<br/>H2 (SQL)"]
+
+    CAT -- "1. Registro y heartbeat" --> EUR
+    SALES -- "1. Registro y heartbeat" --> EUR
+    SALES -. "2. Consulta síncrona<br/>GET /api/games/{id}" .-> CAT
 ```
 
----
-
-## 4. Anatomia Detallada de Clases y Componentes
-
-### Paquete: `com.jonathan.gamestore.catalog`
-
-#### `CatalogServiceApplication.java`
-* Punto de entrada del microservicio.
-* Anotaciones clave:
-  * `@SpringBootApplication`: Arranca la autoconfiguracion, escaneo de componentes y servidor embebido.
-  * `@EnableDiscoveryClient`: Activa el registro en Eureka Server (`http://localhost:8761`).
+**Cómo leerlo:** al iniciar, `catalog-service` se registra en Eureka en el puerto 8082. `sales-service` consulta este catálogo por HTTP para verificar stock y precio oficial antes de procesar cualquier cobro.
 
 ---
 
-### Paquete: `com.jonathan.gamestore.catalog.model`
+## 4. Decisiones de arquitectura
 
-#### `Game.java` (Entidad / Documento NoSQL)
-* Modela el documento persistido dentro de la coleccion `games` de MongoDB.
-* Atributos:
-  * `@Id String id`: Clave primaria administrada como un ObjectId hexadecimal de 24 caracteres autogenerado por MongoDB.
-  * `String title`: Nombre oficial del videojuego.
-  * `String description`: Sinopsis o resumen descriptivo.
-  * `String genre`: Genero de clasificacion (RPG, Accion, Estrategia, etc.).
-  * `BigDecimal price`: Precio oficial de venta (utiliza `BigDecimal` para precision monetaria).
-  * `Integer stock`: Unidades disponibles para compra.
-  * `List<String> platforms`: Plataformas compatibles (`["PC", "PS5", "Xbox Series X"]`).
-  * `Boolean active`: Bandera booleana para borrado suave (`true` = activo, `false` = descontinuado).
-  * `LocalDateTime createdAt`: Marca de tiempo de registro en base de datos.
+### 4.1 Documentos NoSQL (MongoDB) para Catálogo
+- Los videojuegos poseen estructuras cambiantes (plataformas como `["PC", "PS5"]`, géneros, requisitos de hardware, DLCs).
+- MongoDB almacena documentos BSON sin un esquema rígido (*Schema-less*), permitiendo añadir atributos nuevos sin migraciones bloqueantes (`ALTER TABLE`).
 
----
+### 4.2 Fuente única de la verdad (Single Source of Truth)
+- Solo `catalog-service` puede escribir y modificar precios y existencias.
+- Las ventas jamás alteran MongoDB directamente; lo consumen exclusivamente a través de la API REST.
 
-### Paquete: `com.jonathan.gamestore.catalog.dto`
+### 4.3 Soft Delete (Borrado Lógico)
+- Cuando se elimina un juego, el método `deleteGame` no ejecuta `delete()`. En su lugar, marca `active = false`.
+- **Por qué:** si un cliente compró *Elden Ring* hace dos meses, `sales-service` almacena su ID. Si se destruye el documento en MongoDB, las consultas históricas de órdenes quedarían huérfanas y fallarían.
 
-#### `GameRequest.java` (Data Transfer Object)
-* Java `record` inmutable que transporta los datos enviados por los clientes para operaciones de creacion y actualizacion.
-* Reglas de validacion integradas:
-  * `@NotBlank(message = "El titulo es obligatorio") String title`
-  * `String description` (campo opcional)
-  * `@NotBlank(message = "El genero es obligatorio") String genre`
-  * `@NotNull(message = "El precio es obligatorio") @DecimalMin(value = "0.01", message = "El precio debe ser mayor a 0") BigDecimal price`
-  * `@NotNull(message = "El stock es obligatorio") @PositiveOrZero(message = "El stock no puede ser negativo") Integer stock`
-  * `List<String> platforms`
+### 4.4 Autonomía ante fallos de red
+- Si `sales-service` deja de responder o está apagado, `catalog-service` continúa respondiendo peticiones de consulta y navegación de juegos para usuarios sin interrupción.
 
 ---
 
-### Paquete: `com.jonathan.gamestore.catalog.repository`
+## 5. Arquitectura interna por capas
 
-#### `GameRepository.java`
-* Interfaz que hereda de `MongoRepository<Game, String>`.
-* Consultas derivadas provistas por Spring Data MongoDB:
-  * `List<Game> findByGenreIgnoreCase(String genre)`: Filtrado dinamico por categoria sin distincion de mayusculas/minusculas.
-  * `List<Game> findByActiveTrue()`: Consulta orientada a retornar exclusivamente juegos activos para publicacion en catalogo.
+```mermaid
+flowchart TB
+    EXT["Cliente / sales-service"]
+    CTRL["1. Controller<br/>GameController"]
+    SVC["2. Service<br/>GameService"]
+    REPO["3. Repository<br/>GameRepository"]
+    DB[("4. MongoDB<br/>Colección: games")]
 
----
+    EXT -->|"GET / POST / PUT / DELETE"| CTRL
+    CTRL -->|"Invocación de métodos"| SVC
+    SVC -->|"save / find / update"| REPO
+    REPO -->|"BSON Queries"| DB
+```
 
-### Paquete: `com.jonathan.gamestore.catalog.service`
-
-#### `GameService.java`
-* Implementa la logica de negocio:
-  * `createGame(GameRequest request)`: Inicializa la entidad con `active = true` y `createdAt = now()`, persistiendo el documento en MongoDB.
-  * `getAllGames()`: Retorna la coleccion completa.
-  * `getGameById(String id)`: Busca por ID devolviendo `Optional<Game>` para prevenir `NullPointerException`.
-  * `getGamesByGenre(String genre)`: Filtra por clasificacion.
-  * `updateGame(String id, GameRequest request)`: Actualiza selectivamente los atributos comerciales manteniendo el ID y fecha originales.
-  * `deleteGame(String id)`: **Implementacion de Soft Delete (Borrado Logico)**. En lugar de eliminar el documento fisico, marca `active = false`. Esto previene la perdida de integridad referencial con las ordenes de compra emitidas en `sales-service`.
-
----
-
-### Paquete: `com.jonathan.gamestore.catalog.controller`
-
-#### `GameController.java`
-* Controlador REST expuesto bajo el path `/api/games`.
-* Coordina la entrada y salida de datos HTTP traduciendo los resultados del servicio a codigos de estado estandar.
+| Capa | Componente | Responsabilidad | Por qué está separada |
+|---|---|---|---|
+| Controller | `GameController` | Atiende endpoints HTTP `/api/games`, aplica `@Valid` y retorna códigos REST (200, 201, 204, 404). | Aísla el protocolo HTTP de las reglas comerciales. |
+| Service | `GameService` | Aplica reglas de negocio, asigna marcas de tiempo, administra el borrado lógico y gestiona actualizaciones. | Permite probar la lógica unitariamente sin levantar un servidor web. |
+| Repository | `GameRepository` | Interfaz que extiende de `MongoRepository<Game, String>`. | Spring Data genera las consultas hacia MongoDB sin escribir código de bajo nivel. |
+| Model | `Game` | Documento anotado con `@Document(collection = "games")`. | Define la estructura de persistencia en la base de datos NoSQL. |
 
 ---
 
-## 5. Catalogo Completo de Endpoints RESTful (CRUD)
+## 6. Flujo del ciclo de vida de un videojuego
 
-| Operacion CRUD | Metodo HTTP | Ruta Endpoint | Descripcion del Recurso | Codigo Exito | Codigos Falla |
-| :--- | :---: | :--- | :--- | :---: | :---: |
-| **CREATE** | `POST` | `/api/games` | Da de alta un nuevo videojuego con validacion Bean Validation | `201 Created` | `400 Bad Request` |
-| **READ (All)** | `GET` | `/api/games` | Recupera el listado completo de videojuegos | `200 OK` | `500 Internal Error` |
-| **READ (ById)** | `GET` | `/api/games/{id}` | Obtiene los detalles de un juego por su ObjectId (usado por OpenFeign) | `200 OK` | `404 Not Found` |
-| **READ (Filter)**| `GET` | `/api/games/genre/{genre}` | Recupera los juegos clasificados por un genero especifico | `200 OK` | - |
-| **UPDATE** | `PUT` | `/api/games/{id}` | Actualiza atributos comerciales de un juego existente | `200 OK` | `404 Not Found`, `400 Bad Request` |
-| **DELETE** | `DELETE` | `/api/games/{id}` | Desactiva el juego del catalogo aplicando Soft Delete (`active=false`) | `204 No Content`| `404 Not Found` |
+```mermaid
+sequenceDiagram
+    autonumber
+    participant A as Administrador
+    participant C as catalog-service
+    participant M as MongoDB
+    participant S as sales-service
+
+    A->>C: POST /api/games (Elden Ring, $59.99, Stock: 50)
+    C->>M: save(Game) con active=true
+    M-->>C: Documento con ObjectId (24 chars)
+    C-->>A: 201 Created (id: 650c1f1e...)
+
+    Note over S,C: Venta en proceso
+    S->>C: GET /api/games/650c1f1e... (OpenFeign)
+    C->>M: findById()
+    M-->>C: Documento
+    C-->>S: 200 OK (Price: $59.99, Stock: 50, Active: true)
+
+    Note over A,C: Retiro de tienda
+    A->>C: DELETE /api/games/650c1f1e...
+    C->>M: update active=false (Soft Delete)
+    C-->>A: 204 No Content
+```
 
 ---
 
-## 6. Guia Exhaustiva de Pruebas CRUD (cURL y PowerShell)
+## 7. Estructura del proyecto
 
-### 1. CREATE: Crear un nuevo videojuego
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8082/api/games" -Method Post -ContentType "application/json" -Body '{
+```
+catalog-service/
+├── .mvn/wrapper/                    # Wrapper de Maven para compilación portable
+├── src/
+│   ├── main/
+│   │   ├── java/com/jonathan/gamestore/catalog/
+│   │   │   ├── CatalogServiceApplication.java
+│   │   │   ├── controller/   GameController.java
+│   │   │   ├── dto/          GameRequest.java
+│   │   │   ├── model/        Game.java
+│   │   │   ├── repository/   GameRepository.java
+│   │   │   └── service/      GameService.java
+│   │   └── resources/        application.properties
+│   └── test/                 # Suite de pruebas unitarias
+├── mvnw / mvnw.cmd          # Scripts de ejecución multiplataforma
+├── pom.xml                  # Dependencias y plugins del proyecto
+└── README.md
+```
+
+### Componentes clave
+
+| Clase / Archivo | Rol en el sistema |
+|---|---|
+| `CatalogServiceApplication` | Inicializa el contexto Spring Boot y se registra ante Eureka con `@EnableDiscoveryClient`. |
+| `GameController` | Controlador REST que expone las operaciones CRUD bajo `/api/games`. |
+| `GameService` | Cerebro de la aplicación: lógica de guardado, soft delete y conversiones de DTO a entidad. |
+| `GameRepository` | Repositorio NoSQL con métodos como `findByGenreIgnoreCase` y `findByActiveTrue`. |
+| `Game` | Entidad de dominio mapeada a la colección `games` de MongoDB. |
+| `GameRequest` | Record DTO inmutable con Bean Validation para proteger la integridad de datos entrantes. |
+
+---
+
+## 8. Modelo de datos NoSQL
+
+```mermaid
+classDiagram
+    class Game {
+        String id PK (ObjectId)
+        String title
+        String description
+        String genre
+        BigDecimal price
+        Integer stock
+        List~String~ platforms
+        Boolean active
+        LocalDateTime createdAt
+    }
+```
+
+**Detalles de diseño:**
+- **Clave primaria (`@Id String id`):** gestionada como un `ObjectId` hexadecimal de 24 caracteres autogenerado por MongoDB.
+- **Moneda (`BigDecimal price`):** previene imprecisiones de redondeo de punto flotante en cálculos comerciales.
+- **Colección embebida (`List<String> platforms`):** almacena compatibilidad de consolas directamente en el documento sin necesidad de tablas intermedias.
+- **Indicador de estado (`Boolean active`):** permite desactivar productos sin romper referencias foráneas lógicas en `sales-service`.
+
+---
+
+## 9. Referencia de la API (CRUD completo)
+
+**URL base:** `http://localhost:8082/api/games`
+
+| Operación | Método | Ruta | Descripción | Éxito | Errores |
+|---|---|---|---|---|---|
+| Crear | `POST` | `/api/games` | Da de alta un nuevo videojuego con validación. | `201` | `400` |
+| Listar todos | `GET` | `/api/games` | Devuelve el catálogo completo de videojuegos. | `200` | `500` |
+| Consultar por ID | `GET` | `/api/games/{id}` | Busca un juego por su ObjectId (usado por OpenFeign). | `200` | `404` |
+| Filtrar por género | `GET` | `/api/games/genre/{genre}` | Devuelve los juegos asociados a una categoría. | `200` | — |
+| Actualizar | `PUT` | `/api/games/{id}` | Actualiza datos y existencias de un videojuego. | `200` | `400`, `404` |
+| Eliminar (Soft) | `DELETE` | `/api/games/{id}` | Desactiva el videojuego (`active=false`). | `204` | `404` |
+
+### Ejemplo 1: Crear un videojuego (POST)
+
+```http
+POST /api/games
+Content-Type: application/json
+
+{
   "title": "Elden Ring",
-  "description": "Juego de rol y accion en mundo abierto de FromSoftware",
+  "description": "Juego de rol y acción en mundo abierto",
   "genre": "RPG",
   "price": 59.99,
   "stock": 50,
   "platforms": ["PC", "PS5", "Xbox Series X"]
-}' | ConvertTo-Json -Depth 5
-```
-*Respuesta esperada:* `HTTP 201 Created` con el campo `"id": "674a123f8b1c4e..."`.
-
----
-
-### 2. READ: Listar todos los videojuegos
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8082/api/games" -Method Get | ConvertTo-Json -Depth 5
-```
-*Respuesta esperada:* `HTTP 200 OK` conteniendo el arreglo JSON de juegos registrados.
-
----
-
-### 3. READ: Buscar un videojuego por su identificador unico
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8082/api/games/TU_ID_AQUI" -Method Get | ConvertTo-Json -Depth 5
-```
-*Respuesta esperada:* `HTTP 200 OK` con la informacion del juego, o `HTTP 404 Not Found` si el ID no existe.
-
----
-
-### 4. READ: Filtrar videojuegos por genero
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8082/api/games/genre/RPG" -Method Get | ConvertTo-Json -Depth 5
-```
-*Respuesta esperada:* `HTTP 200 OK` con los videojuegos asociados a dicho genero.
-
----
-
-### 5. UPDATE: Actualizar datos de un videojuego existente
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8082/api/games/TU_ID_AQUI" -Method Put -ContentType "application/json" -Body '{
-  "title": "Elden Ring: Shadow of the Erdtree Edition",
-  "description": "Edicion que incluye la expansion oficial",
-  "genre": "RPG",
-  "price": 79.99,
-  "stock": 35,
-  "platforms": ["PC", "PS5", "Xbox Series X"]
-}' | ConvertTo-Json -Depth 5
-```
-*Respuesta esperada:* `HTTP 200 OK` con los campos actualizados.
-
----
-
-### 6. DELETE: Desactivar videojuego (Soft Delete)
-```powershell
-Invoke-WebRequest -Uri "http://localhost:8082/api/games/TU_ID_AQUI" -Method Delete
-```
-*Respuesta esperada:* `HTTP 204 No Content`. El documento permanecera en MongoDB con el atributo `"active": false`.
-
----
-
-## 7. Instrucciones de Ejecucion Optimizada (8 GB RAM Setup)
-
-```powershell
-cd C:\Users\ErickJimz\IdeaProjects\catalog-service
-.\mvnw.cmd clean package -DskipTests
-java -Xmx300m -jar .\target\catalog-service-0.0.1-SNAPSHOT.jar
-```
-* **Puerto configurado:** `8082`
-* **Base de datos:** `mongodb://localhost:27017/gamestore_catalog`
-
-
----
-
-## 8. Flujo de Interaccion Integral del Ecosistema (End-to-End)
-
-Esta seccion describe la secuencia operativa completa que conecta a **`eureka-server`**, **`catalog-service`** y **`sales-service`** en un escenario real de compra de videojuegos.
-
-### Diagrama de Secuencia de la Interaccion Completa
-
-```
-[Usuario / Postman]     [sales-service:8081]      [eureka-server:8761]      [catalog-service:8082]     [MongoDB:27017]
-         |                       |                         |                          |                       |
-         |=== 1. Registro inicial en el ecosistema =========================================================|
-         |                       |                         |<--- Registra CATALOG ----|                       |
-         |                       |<--- Registra SALES -----|                          |                       |
-         |                       |                         |                          |                       |
-         |=== 2. Alta de Videojuego en Catalogo ============================================================|
-         |-- POST /api/games -------------------------------------------------------->|                       |
-         |   (Elden Ring, $59.99, stock: 10)               |                          |-- save(Game) -------->|
-         |                                                 |                          |<-- id: "674a123f..." -|
-         |<-- HTTP 201 Created (id: "674a123f...") -----------------------------------|                       |
-         |                                                 |                          |                       |
-         |=== 3. Intento de Compra con Validacion Sincrona (OpenFeign) =====================================|
-         |-- POST /api/orders ---------------------------->|                          |                       |
-         |   (gameId: "674a123f...", qty: 2)               |                          |                       |
-         |                       |-- 3.1 Resolucion ------>|                          |                       |
-         |                       |    "¿Donde esta CATALOG?"                          |                       |
-         |                       |<-- Retorna 8082 --------|                          |                       |
-         |                       |                                                    |                       |
-         |                       |-- 3.2 GET /api/games/674a123f... (OpenFeign) ----->|                       |
-         |                       |                                                    |-- findById() -------->|
-         |                       |                                                    |<-- Game Document -----|
-         |                       |<-- HTTP 200 OK (Price: $59.99, Stock: 10) ---------|                       |
-         |                       |                                                    |                       |
-         |                       |-- 3.3 Reglas de Negocio en Servidor:               |                       |
-         |                       |   a) Verifica: stock (10) >= cantidad (2) -> OK    |                       |
-         |                       |   b) Blindaje: Aplica $59.99 (ignora cliente)      |                       |
-         |                       |   c) Genera CD-Key: "STEAM-A8F2-4B1C..."           |                       |
-         |                       |   d) Persiste en H2 SQL (Transaccion ACID)         |                       |
-         |<-- HTTP 201 Created --|                                                    |                       |
-         |   (Total: $119.98, CD-Keys generadas)                                      |                       |
+}
 ```
 
-### Guia de Reproduccion Paso a Paso de la Interaccion
-
-#### Paso 1: Inicializar Eureka Server
-En una terminal:
-```powershell
-cd C:\Users\ErickJimz\IdeaProjects\eureka-server
-.\mvnw.cmd spring-boot:run
-```
-*Verificar:* Abrir el navegador en `http://localhost:8761` (Dashboard de Eureka activo).
-
-#### Paso 2: Inicializar Catalog Service
-En una segunda terminal:
-```powershell
-cd C:\Users\ErickJimz\IdeaProjects\catalog-service
-.\mvnw.cmd spring-boot:run
-```
-*Verificar:* En `http://localhost:8761` aparecera registrado el nodo **`CATALOG-SERVICE`** en estado `UP`.
-
-#### Paso 3: Inicializar Sales Service
-En una tercera terminal:
-```powershell
-cd C:\Users\ErickJimz\IdeaProjects\sales-service
-.\mvnw.cmd spring-boot:run
-```
-*Verificar:* En `http://localhost:8761` aparecera registrado el nodo **`SALES-SERVICE`** en estado `UP`.
-
-#### Paso 4: Crear el Videojuego en el Catalogo (MongoDB)
-```powershell
-$gameResponse = Invoke-RestMethod -Uri "http://localhost:8082/api/games" -Method Post -ContentType "application/json" -Body '{
+**Respuesta `201 Created`:**
+```json
+{
+  "id": "674a123f8b1c4e0012a9bc11",
   "title": "Elden Ring",
-  "description": "Edicion Estandar",
+  "description": "Juego de rol y acción en mundo abierto",
   "genre": "RPG",
   "price": 59.99,
-  "stock": 10,
+  "stock": 50,
+  "platforms": ["PC", "PS5", "Xbox Series X"],
+  "active": true,
+  "createdAt": "2026-09-30T10:00:00"
+}
+```
+
+### Ejemplo 2: Actualizar videojuego (PUT)
+
+```http
+PUT /api/games/674a123f8b1c4e0012a9bc11
+Content-Type: application/json
+
+{
+  "title": "Elden Ring: Shadow of the Erdtree",
+  "description": "Edición definitiva con expansión",
+  "genre": "RPG",
+  "price": 79.99,
+  "stock": 40,
+  "platforms": ["PC", "PS5", "Xbox Series X"]
+}
+```
+
+---
+
+## 10. Manejo de errores
+
+| Escenario | Causa | Código HTTP | Respuesta generada |
+|---|---|---|---|
+| Validación fallida | Campo `title` o `genre` en blanco, `price <= 0` | `400 Bad Request` | Mensaje descriptivo con detalles de campos inválidos. |
+| ID inexistente | Consulta o borrado de un `id` no registrado en MongoDB | `404 Not Found` | Respuesta vacía o JSON de recurso no encontrado. |
+| Error de base de datos | MongoDB apagado o fuera de línea | `500 Internal Error` | Diagnóstico de desconexión hacia `localhost:27017`. |
+
+---
+
+## 11. Configuración
+
+Archivo: `src/main/resources/application.properties`
+
+```properties
+spring.application.name=catalog-service
+server.port=8082
+
+# Conexión a MongoDB NoSQL
+spring.data.mongodb.uri=mongodb://localhost:27017/gamestore_catalog
+
+# Registro en Eureka Server
+eureka.client.service-url.defaultZone=http://localhost:8761/eureka/
+```
+
+| Propiedad | Valor | Función |
+|---|---|---|
+| `spring.application.name` | `catalog-service` | Nombre lógico para la resolución dinámica de OpenFeign en Eureka. |
+| `server.port` | `8082` | Puerto HTTP del servicio de catálogo. |
+| `spring.data.mongodb.uri` | `mongodb://localhost:27017/gamestore_catalog` | Cadena de conexión al clúster de MongoDB. |
+| `eureka.client.service-url.defaultZone` | `http://localhost:8761/eureka/` | Ubicación del servidor de descubrimiento. |
+
+---
+
+## 12. Instalación y ejecución
+
+### Requisitos previos
+- **JDK 17** o superior (`java -version`).
+- **MongoDB 7.0+** corriendo en el puerto por defecto `27017` (`mongod`).
+- **Eureka Server** activo en el puerto `8761`.
+
+### Paso 1. Clonar el repositorio
+```bash
+git clone https://github.com/Alger125/catalog-service.git
+cd catalog-service
+```
+
+### Paso 2. Ejecución con Maven Wrapper
+```bash
+./mvnw spring-boot:run          # Windows: .\mvnw.cmd spring-boot:run
+```
+
+### Alternativa de bajo consumo de memoria (JVM 300MB)
+```bash
+./mvnw clean package -DskipTests
+java -Xmx300m -jar target/catalog-service-0.0.1-SNAPSHOT.jar
+```
+
+---
+
+## 13. Guía de pruebas
+
+### Escenario de pruebas con PowerShell
+
+```powershell
+# 1. Crear Videojuego
+$res = Invoke-RestMethod -Uri "http://localhost:8082/api/games" -Method Post -ContentType "application/json" -Body '{
+  "title": "Cyberpunk 2077",
+  "description": "RPG futurista en Night City",
+  "genre": "RPG",
+  "price": 49.99,
+  "stock": 25,
   "platforms": ["PC", "PS5"]
 }'
-$gameId = $gameResponse.id
-Write-Host "Juego registrado con ID NoSQL: $gameId"
+$id = $res.id
+
+# 2. Consultar por ID
+Invoke-RestMethod -Uri "http://localhost:8082/api/games/$id" -Method Get | ConvertTo-Json
+
+# 3. Filtrar por Género
+Invoke-RestMethod -Uri "http://localhost:8082/api/games/genre/RPG" -Method Get | ConvertTo-Json
+
+# 4. Desactivar (Soft Delete)
+Invoke-WebRequest -Uri "http://localhost:8082/api/games/$id" -Method Delete
 ```
 
-#### Paso 5: Emitir la Orden de Compra en Ventas (Consumiendo Catalogo via OpenFeign)
-```powershell
-Invoke-RestMethod -Uri "http://localhost:8081/api/orders" -Method Post -ContentType "application/json" -Body @"
-{
-  "userId": 101,
-  "items": [
-    {
-      "gameId": "$gameId",
-      "gameTitle": "Elden Ring",
-      "unitPrice": 59.99,
-      "quantity": 2
-    }
-  ]
-}
-"@ | ConvertTo-Json -Depth 5
-```
+---
 
-*Resultado observable:*
-* `sales-service` consulta de forma invisible a `catalog-service` a traves de Eureka.
-* Valida existencias y precio en MongoDB.
-* Genera las claves digitales seguras para el usuario.
-* Retorna la orden con el monto oficial calculado ($119.98).
+## 14. Solución de problemas
+
+| Síntoma | Causa probable | Solución |
+|---|---|---|
+| `MongoSocketOpenException` / Connection Refused en 27017 | El servicio de MongoDB no está corriendo en la máquina. | Iniciar el servicio MongoDB con `net start MongoDB` o `mongod`. |
+| `Connection refused` a `localhost:8761` | Eureka Server no está encendido. | Iniciar primero el repositorio `eureka-server`. |
+| Puerto `8082` ocupado | Otra aplicación está usando el puerto. | Detener el proceso previo o cambiar `server.port=8083`. |
+| `400 Bad Request` al insertar juego | Falló Bean Validation (`price` menor a 0.01 o campos en blanco). | Revisar que el JSON cumpla con las anotaciones de `GameRequest`. |
+
+---
+
+## 15. Mejoras futuras
+
+- **Eventos asíncronos con Kafka:** consumir eventos `OrderPlacedEvent` desde `sales-service` para descontar stock automáticamente sin acoplamiento HTTP.
+- **Búsqueda y Filtros Avanzados:** indexación de texto en MongoDB para búsquedas por palabras clave en descripciones y títulos.
+- **Caché Distribuida con Redis:** almacenar en caché las consultas de juegos más populares para reducir lecturas en MongoDB.
+- **Documentación Interactiva:** integración con Swagger / OpenAPI en `/swagger-ui.html`.
+- **Contenedores:** creación de `Dockerfile` y configuración en `docker-compose.yml` junto con MongoDB.
+
+---
+
+## Autor
+
+**Alger125** · [github.com/Alger125](https://github.com/Alger125)
