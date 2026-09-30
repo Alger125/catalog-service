@@ -63,7 +63,7 @@ public class GameController {
  * @PathVariable: Captura el valor dinÃ¡mico del ID en la URL.
  * @return HTTP 200 (OK) si existe, o HTTP 404 (Not Found) si no se encontrÃ³.
  */
- @GetMapping("{id}")
+ @GetMapping("/{id}")
  public ResponseEntity<Game> getGameById(@PathVariable String id) {
  return gameService.getGameById(id)
  .map(ResponseEntity::ok)
@@ -85,7 +85,7 @@ public class GameController {
  * Modifica los datos de un juego existente.
  * @return HTTP 200 (OK) con el juego actualizado, o HTTP 404 (Not Found) si no existÃ­a.
  */
- @PutMapping("{id}")
+ @PutMapping("/{id}")
  public ResponseEntity<Game> updateGame(@PathVariable String id, @Valid @RequestBody GameRequest request) {
  return gameService.updateGame(id, request)
  .map(ResponseEntity::ok)
@@ -97,7 +97,7 @@ public class GameController {
  * Desactiva un juego mediante Soft Delete (active = false).
  * @return HTTP 204 (No Content) indicando desactivaciÃ³n exitosa, o HTTP 404 (Not Found) si no existÃ­a.
  */
- @DeleteMapping("{id}")
+ @DeleteMapping("/{id}")
  public ResponseEntity<Void> deleteGame(@PathVariable String id) {
  if (gameService.deleteGame(id)) {
  return ResponseEntity.noContent().build();
