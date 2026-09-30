@@ -7,7 +7,7 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 
 /**
- * 🗄️ CAPA DE PERSISTENCIA NoSQL: GameRepository
+ * CAPA DE PERSISTENCIA NoSQL: GameRepository
  *
  * ¿Qué es y qué hace?
  * Es la interfaz que conecta directamente nuestra aplicación con la base de datos MongoDB.
@@ -20,22 +20,22 @@ import java.util.List;
  * - findAll(): Recupera todos los documentos de la colección.
  * - deleteById(String id): Elimina físicamente un documento.
  *
- * 🪄 Consultas Derivadas (Query Methods):
+ * Consultas Derivadas (Query Methods):
  * Spring Data lee el nombre en inglés del método y construye la consulta NoSQL por ti:
  */
 @Repository
 public interface GameRepository extends MongoRepository<Game, String> {
 
-    /**
-     * Busca todos los videojuegos que pertenezcan a un género específico.
-     * 'IgnoreCase' hace que la búsqueda no distinga mayúsculas de minúsculas
-     * (ej:  rpg, RPG o Rpg devolverán los mismos resultados).
-     */
-    List<Game> findByGenreIgnoreCase(String genre);
+ /**
+ * Busca todos los videojuegos que pertenezcan a un género específico.
+ * 'IgnoreCase' hace que la búsqueda no distinga mayúsculas de minúsculas
+ * (ej: rpg, RPG o Rpg devolverán los mismos resultados).
+ */
+ List<Game> findByGenreIgnoreCase(String genre);
 
-    /**
-     * Recupera únicamente los videojuegos que tengan active = true (en venta).
-     * Ignora los juegos que fueron dados de baja por borrado lógico.
-     */
-    List<Game> findByActiveTrue();
+ /**
+ * Recupera únicamente los videojuegos que tengan active = true (en venta).
+ * Ignora los juegos que fueron dados de baja por borrado lógico.
+ */
+ List<Game> findByActiveTrue();
 }

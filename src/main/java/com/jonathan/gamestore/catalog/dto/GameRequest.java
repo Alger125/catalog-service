@@ -9,22 +9,22 @@ import java.math.BigDecimal;
 import java.util.List;
 
 public record GameRequest(
-        @NotBlank(message = "El titulo es obligatorio")
-        String title,
+ @NotBlank(message = "El titulo es obligatorio")
+ String title,
 
-        String description,
+ String description,
 
-        @NotBlank(message = "El genero es obligatorio")
-        String genre,
+ @NotBlank(message = "El genero es obligatorio")
+ String genre,
 
-        @NotNull(message = "El precio es obligatorio")
-        @DecimalMin(value = "0.01", message = "El precio debe ser mayor a 0")
-        BigDecimal price,
+ @NotNull(message = "El precio es obligatorio")
+ @DecimalMin(value = "0.01", message = "El precio debe ser mayor a 0")
+ BigDecimal price,
 
-        @NotNull(message = "El stock es obligatorio")
-        @PositiveOrZero(message = "El stock no puede ser negativo")
-        Integer stock,
+ @NotNull(message = "El stock es obligatorio")
+ @PositiveOrZero(message = "El stock no puede ser negativo")
+ Integer stock,
 
-        List<String> platforms
+ List<String> platforms
 ) {
 }
