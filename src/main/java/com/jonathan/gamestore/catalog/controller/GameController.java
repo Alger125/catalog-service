@@ -3,6 +3,11 @@ package com.jonathan.gamestore.catalog.controller;
 import com.jonathan.gamestore.catalog.dto.GameRequest;
 import com.jonathan.gamestore.catalog.model.Game;
 import com.jonathan.gamestore.catalog.service.GameService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -12,93 +17,91 @@ import org.springframework.web.bind.annotation.*;
 import java.util.List;
 
 /**
- * ðŸŒ CAPA DE CONTROLADOR REST: GameController
+ * CAPA DE CONTROLADOR REST: GameController
  *
- * Â¿QuÃ© representa esta clase?
- * Es el "Mesero" del catÃ¡logo. Atiende todas las peticiones HTTP que llegan al puerto 8082
- * bajo la ruta "/api/games".
- *
- * Su Ãºnica funciÃ³n es:
- * 1. Recibir los datos de la peticiÃ³n HTTP.
- * 2. Validar que cumplan las anotaciones del DTO0mediante @Valid.
- * 3. Pasarle el trabajo al GameService (la cocina).
- * 4. Retornar el cÃ³digo HTTP estÃ¡ndar de la industria (201 Created, 200 OK, 204 No Content, 404 Not Found).
+ * Expone las operaciones comerciales de administracion del catalogo,
+ * inventario y precios de videojuegos sobre MongoDB.
  */
 @RestController
 @RequestMapping("/api/games")
 @RequiredArgsConstructor
+@Tag(name = "Catalogo de Videojuegos", description = "Endpoints para administracion de productos, precios e inventario NoSQL")
 public class GameController {
 
-    // InyecciÃ³n de dependencias de la capa de servicio
     private final GameService gameService;
 
-    /**
-     * ðŸŸ§ POST /api/games
-     * Da de alta un nuevo videojuego en el catÃ¡lego.
-     *
-     * @Valid: Fuerza la validaciÃ³n de los campos de GameRequest antes de ejecutar el mÃ©todo.
-     * @RequestBody: Deserializa el JSON enviado por el cliente a un objeto Java GameRequest.
-     * @return HTTP 201 (Created) con el documento del juego reciÃ©n insertado.
-     */
+    @Operation(summary = "Crear nuevo videojuego",
+            description = "Da de alta un nuevo videojuego en el catalogo con validacion estructural de precio y stock")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "201", description = "Videojuego creado exitosamente"),
+            @ApiResponse(responseCode = "400", description = "Datos de entrada invalidos (precio <= 0, campos obligatorios vacios)")
+    })
     @PostMapping
     public ResponseEntity<Game> createGame(@Valid @RequestBody GameRequest request) {
         Game createdGame = gameService.createGame(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(createdGame);
     }
 
-    /**
-     * ðŸœµ GET /api/games
-     * Lista todos los videojuegos registrados en la base de datos de MongoDB.
-     * @return HTTP 200 (OK) con el arreglo JSON de videojuegos.
-     */
+    @Operation(summary = "Listar todos los videojuegos",
+            description = "Retorna la lista completa de videojuegos registrados en MongoDB")
+    @ApiResponse(responseCode = "200", description = "Catalogo de videojuegos obtenido exitosamente")
     @GetMapping
     public ResponseEntity<List<Game>> getAllGames() {
         return ResponseEntity.ok(gameService.getAllGames());
     }
 
-    /**
-     * ðŸœµ GET /api/games/{id}
-     * Busca un juego por su identificador Ãºnico de MongoDB (ej: /api/games/650c1f1e9b1d8b2bad000001).
-     *
-     * @PathVariable: Captura el valor dinÃ¡mico del ID en la URL.
-     * @return HTTP 200 (OK) si existe, o HTTP 404 (Not Found) si no se encontrÃ³.
-     */
-    @GetMapping("{id}")
-    public ResponseEntity<Game> getGameById(@PathVariable String id) {
+    @Operation(summary = "Consultar videojuego por ID",
+            description = "Busca los datos y precio oficial de un videojuego por su ObjectId (usado por sales-service)")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Videojuego encontrado"),
+            @ApiResponse(responseCode = "404", description = "Videojuego no encontrado con el ID proporcionado")
+    })
+    @GetMapping("/{id}")
+    public ResponseEntity<Game> getGameById(
+            @Parameter(description = "Identificador unico de MongoDB (ObjectId de 24 caracteres)", example = "650c1f1e9b1d8b2bad000001")
+            @PathVariable String id) {
         return gameService.getGameById(id)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    /**
-     * ðŸœµ GET /api/games/genre/{genre}
-     * Filtra los juegos por su categorÃ­a (ej: /api/games/genre/RPG).
-     * @return HTTP 200 (OK) con la lista de juegos de ese gÃ©nero.
-     */
+    @Operation(summary = "Filtrar videojuegos por genero",
+            description = "Obtiene todos los videojuegos asociados a una categoria o genero especifico")
+    @ApiResponse(responseCode = "200", description = "Lista de videojuegos del genero solicitado")
     @GetMapping("/genre/{genre}")
-    public ResponseEntity<List<Game>> getGamesByGenre(@PathVariable String genre) {
+    public ResponseEntity<List<Game>> getGamesByGenre(
+            @Parameter(description = "Nombre del genero o categoria (case-insensitive)", example = "RPG")
+            @PathVariable String genre) {
         return ResponseEntity.ok(gameService.getGamesByGenre(genre));
     }
 
-    /**
-     * ðŸ“ PUT /api/games/{id}
-     * Modifica los datos de un juego existente.
-     * @return HTTP 200 (OK) con el juego actualizado, o HTTP 404 (Not Found) si no existÃ­a.
-     */
-    @PutMapping("{id}")
-    public ResponseEntity<Game> updateGame(@PathVariable String id, @Valid @RequestBody GameRequest request) {
+    @Operation(summary = "Actualizar datos de videojuego",
+            description = "Modifica los atributos, stock o precio oficial de un videojuego existente")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Videojuego actualizado exitosamente"),
+            @ApiResponse(responseCode = "400", description = "Datos de entrada invalidos"),
+            @ApiResponse(responseCode = "404", description = "Videojuego no encontrado con el ID indicado")
+    })
+    @PutMapping("/{id}")
+    public ResponseEntity<Game> updateGame(
+            @Parameter(description = "Identificador unico de MongoDB del juego a actualizar", example = "650c1f1e9b1d8b2bad000001")
+            @PathVariable String id,
+            @Valid @RequestBody GameRequest request) {
         return gameService.updateGame(id, request)
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
     }
 
-    /**
-     * ðŸœ DELETE /api/games/{id}
-     * Desactiva un juego mediante Soft Delete (active = false).
-     * @return HTTP 204 (No Content) indicando desactivaciÃ³n exitosa, o HTTP 404 (Not Found) si no existÃ­a.
-     */
-    @DeleteMapping("{id}")
-    public ResponseEntity<Void> deleteGame(@PathVariable String id) {
+    @Operation(summary = "Eliminar videojuego (Soft Delete)",
+            description = "Desactiva el videojuego marcandolo como inactivo (active = false) preservando el historial para ordenes previas")
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "204", description = "Videojuego desactivado exitosamente"),
+            @ApiResponse(responseCode = "404", description = "Videojuego no encontrado")
+    })
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> deleteGame(
+            @Parameter(description = "Identificador unico de MongoDB del juego a desactivar", example = "650c1f1e9b1d8b2bad000001")
+            @PathVariable String id) {
         if (gameService.deleteGame(id)) {
             return ResponseEntity.noContent().build();
         }

@@ -5,7 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 
 /**
- * 🌟 CLASE PRINCIPAL: CatalogServiceApplication
+ * CLASE PRINCIPAL: CatalogServiceApplication
  *
  * ¿Qué hace esta clase?
  * Es el punto de arranque de todo el microservicio de Catálogo de Videojuegos.
@@ -13,18 +13,18 @@ import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
  *
  * Anotaciones clave explicadas para un Junior:
  * 1. @SpringBootApplication: Inicializa Spring Boot, el contenedor de dependencias
- *    y la autoconfiguración de Spring Data MongoDB.
+ * y la autoconfiguración de Spring Data MongoDB.
  *
  * 2. @EnableDiscoveryClient: Le da la orden a este microservicio de buscar a Eureka Server
- *    (puerto 8761) y registrarse automáticamente con el nombre lógico  CATALOG-SERVICE.
- *    Gracias a esto, sales-service podrá descubrirlo a través de Eureka sin conocer su IP física.
+ * (puerto 8761) y registrarse automáticamente con el nombre lógico CATALOG-SERVICE.
+ * Gracias a esto, sales-service podrá descubrirlo a través de Eureka sin conocer su IP física.
  */
 @SpringBootApplication
 @EnableDiscoveryClient
 public class CatalogServiceApplication {
 
-    public static void main(String[] args) {
-        // Arranca el microservicio de catálogo
-        SpringApplication.run(CatalogServiceApplication.class, args);
-    }
+ public static void main(String[] args) {
+ // Arranca el microservicio de catálogo
+ SpringApplication.run(CatalogServiceApplication.class, args);
+ }
 }
