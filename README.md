@@ -1,11 +1,12 @@
 # Catalog Service
 
-> Microservicio de **catálogo de videojuegos, inventario NoSQL y gestión de precios oficiales**, construido sobre una arquitectura de microservicios con Spring Cloud y MongoDB.
+> Microservicio de **catálogo de videojuegos, inventario NoSQL y gestión de precios oficiales**, construido sobre una arquitectura de microservicios con Spring Cloud, MongoDB y documentado interactivamente con Swagger / OpenAPI 3.
 
 ![Java](https://img.shields.io/badge/Java-17-orange)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.1-brightgreen)
 ![Spring Cloud](https://img.shields.io/badge/Spring%20Cloud-2025.1.3-blue)
 ![MongoDB](https://img.shields.io/badge/MongoDB-7.0-green)
+![OpenAPI 3](https://img.shields.io/badge/OpenAPI%203-Swagger%20UI-green)
 ![Build](https://img.shields.io/badge/Build-Maven-red)
 
 ---
@@ -20,7 +21,7 @@
 6. [Flujo del ciclo de vida de un videojuego](#6-flujo-del-ciclo-de-vida-de-un-videojuego)
 7. [Estructura del proyecto](#7-estructura-del-proyecto)
 8. [Modelo de datos NoSQL](#8-modelo-de-datos-nosql)
-9. [Referencia de la API (CRUD completo)](#9-referencia-de-la-api-crud-completo)
+9. [Referencia de la API y Swagger UI](#9-referencia-de-la-api-y-swagger-ui)
 10. [Manejo de errores](#10-manejo-de-errores)
 11. [Configuración](#11-configuración)
 12. [Instalación y ejecución](#12-instalación-y-ejecución)
@@ -39,6 +40,7 @@
 | Administración de catálogo | Alta, edición, consulta y borrado lógico de videojuegos. |
 | Control de inventario | Gestión del stock disponible en almacén para cada título. |
 | Precios oficiales | Custodia el precio unitario real que valida `sales-service` para evitar fraudes. |
+| Documentación interactiva | Expone interfaz visual Swagger UI para probar endpoints desde el navegador. |
 | Clasificación y búsqueda | Filtros por género (RPG, Acción, etc.) y consulta de juegos activos. |
 | Integridad histórica (Soft Delete) | Desactiva juegos sin destruirlos físicamente, preservando el histórico de compras. |
 
@@ -55,6 +57,7 @@
 | Spring Data MongoDB | (BOM de Boot) | Persistencia NoSQL | Abstracción de repositorios y mapeo automático objeto-documento (BSON). |
 | MongoDB | 7.0 | Base de datos de documentos | Esquema dinámico ideal para plataformas, géneros y especificaciones variables. |
 | Spring Cloud Netflix Eureka Client | 2025.1.3 | Descubrimiento de servicios | Publica el servicio como `CATALOG-SERVICE` en el registro central sin IPs fijas. |
+| Springdoc OpenAPI 3 (Swagger UI) | 2.8.5 | Documentación interactiva | Genera la UI en `/swagger-ui.html` para explorar y probar la API de catálogo sin herramientas externas. |
 | Bean Validation | (BOM de Boot) | Validación estructural | Valida precios positivos, títulos no vacíos y stocks válidos antes de persistir. |
 | Lombok | (BOM de Boot) | Reducción de boilerplate | Genera builders, getters y constructores transparentemente. |
 | Maven Wrapper | — | Herramienta de compilación | Compilación uniforme garantizada en cualquier estación de trabajo. |
@@ -111,7 +114,7 @@ flowchart TB
 
 ```mermaid
 flowchart TB
-    EXT["Cliente / sales-service"]
+    EXT["Cliente (Swagger UI / sales-service)"]
     CTRL["1. Controller<br/>GameController"]
     SVC["2. Service<br/>GameService"]
     REPO["3. Repository<br/>GameRepository"]
@@ -125,10 +128,10 @@ flowchart TB
 
 | Capa | Componente | Responsabilidad | Por qué está separada |
 |---|---|---|---|
-| Controller | `GameController` | Atiende endpoints HTTP `/api/games`, aplica `@Valid` y retorna códigos REST (200, 201, 204, 404). | Aísla el protocolo HTTP de las reglas comerciales. |
+| Controller | `GameController` | Atiende endpoints HTTP `/api/games`, aplica `@Valid`, documentado con OpenAPI y retorna códigos REST (200, 201, 204, 404). | Aísla el protocolo HTTP de las reglas comerciales. |
 | Service | `GameService` | Aplica reglas de negocio, asigna marcas de tiempo, administra el borrado lógico y gestiona actualizaciones. | Permite probar la lógica unitariamente sin levantar un servidor web. |
 | Repository | `GameRepository` | Interfaz que extiende de `MongoRepository<Game, String>`. | Spring Data genera las consultas hacia MongoDB sin escribir código de bajo nivel. |
-| Model | `Game` | Documento anotado con `@Document(collection = "games")`. | Define la estructura de persistencia en la base de datos NoSQL. |
+| Model | `Game` | Documento anotado con `@Document(collection = "games")` y `@Schema`. | Define la estructura de persistencia en la base de datos NoSQL y su contrato OpenAPI. |
 
 ---
 
@@ -137,7 +140,7 @@ flowchart TB
 ```mermaid
 sequenceDiagram
     autonumber
-    participant A as Administrador
+    participant A as Administrador (Swagger UI)
     participant C as catalog-service
     participant M as MongoDB
     participant S as sales-service
@@ -170,6 +173,7 @@ catalog-service/
 │   ├── main/
 │   │   ├── java/com/jonathan/gamestore/catalog/
 │   │   │   ├── CatalogServiceApplication.java
+│   │   │   ├── config/       OpenApiConfig.java
 │   │   │   ├── controller/   GameController.java
 │   │   │   ├── dto/          GameRequest.java
 │   │   │   ├── model/        Game.java
@@ -187,11 +191,12 @@ catalog-service/
 | Clase / Archivo | Rol en el sistema |
 |---|---|
 | `CatalogServiceApplication` | Inicializa el contexto Spring Boot y se registra ante Eureka con `@EnableDiscoveryClient`. |
-| `GameController` | Controlador REST que expone las operaciones CRUD bajo `/api/games`. |
+| `OpenApiConfig` | Configuración de metadatos globales (título, autor Alger125, versión) para Swagger UI. |
+| `GameController` | Controlador REST que expone las operaciones CRUD bajo `/api/games` enriquecido con anotaciones OpenAPI (`@Tag`, `@Operation`, `@ApiResponse`). |
 | `GameService` | Cerebro de la aplicación: lógica de guardado, soft delete y conversiones de DTO a entidad. |
 | `GameRepository` | Repositorio NoSQL con métodos como `findByGenreIgnoreCase` y `findByActiveTrue`. |
-| `Game` | Entidad de dominio mapeada a la colección `games` de MongoDB. |
-| `GameRequest` | Record DTO inmutable con Bean Validation para proteger la integridad de datos entrantes. |
+| `Game` | Entidad de dominio mapeada a la colección `games` de MongoDB y anotada con `@Schema`. |
+| `GameRequest` | Record DTO inmutable con Bean Validation y anotaciones `@Schema` para Swagger UI. |
 
 ---
 
@@ -220,7 +225,12 @@ classDiagram
 
 ---
 
-## 9. Referencia de la API (CRUD completo)
+## 9. Referencia de la API y Swagger UI
+
+> **Documentación interactiva disponible:**  
+> Con el servicio en ejecución, puedes acceder y probar todos los endpoints visualmente desde tu navegador:  
+> - **Swagger UI:** [http://localhost:8082/swagger-ui.html](http://localhost:8082/swagger-ui.html)  
+> - **OpenAPI Spec (JSON):** [http://localhost:8082/v3/api-docs](http://localhost:8082/v3/api-docs)
 
 **URL base:** `http://localhost:8082/api/games`
 
@@ -344,7 +354,13 @@ java -Xmx300m -jar target/catalog-service-0.0.1-SNAPSHOT.jar
 
 ## 13. Guía de pruebas
 
-### Escenario de pruebas con PowerShell
+### 1. Pruebas interactivas con Swagger UI
+
+1. Levanta `catalog-service` y abre en tu navegador [http://localhost:8082/swagger-ui.html](http://localhost:8082/swagger-ui.html).
+2. Selecciona cualquier endpoint (ej. `POST /api/games` o `GET /api/games/{id}`), pulsa **"Try it out"** y luego **"Execute"**.
+3. Revisa la respuesta JSON generada en tiempo real junto con el código HTTP correspondiente.
+
+### 2. Escenario de pruebas con PowerShell
 
 ```powershell
 # 1. Crear Videojuego
@@ -378,6 +394,7 @@ Invoke-WebRequest -Uri "http://localhost:8082/api/games/$id" -Method Delete
 | `Connection refused` a `localhost:8761` | Eureka Server no está encendido. | Iniciar primero el repositorio `eureka-server`. |
 | Puerto `8082` ocupado | Otra aplicación está usando el puerto. | Detener el proceso previo o cambiar `server.port=8083`. |
 | `400 Bad Request` al insertar juego | Falló Bean Validation (`price` menor a 0.01 o campos en blanco). | Revisar que el JSON cumpla con las anotaciones de `GameRequest`. |
+| Swagger UI no carga | Servicio no arrancó o URL incorrecta. | Verificar que `catalog-service` esté corriendo y abrir `http://localhost:8082/swagger-ui.html`. |
 
 ---
 
@@ -386,7 +403,6 @@ Invoke-WebRequest -Uri "http://localhost:8082/api/games/$id" -Method Delete
 - **Eventos asíncronos con Kafka:** consumir eventos `OrderPlacedEvent` desde `sales-service` para descontar stock automáticamente sin acoplamiento HTTP.
 - **Búsqueda y Filtros Avanzados:** indexación de texto en MongoDB para búsquedas por palabras clave en descripciones y títulos.
 - **Caché Distribuida con Redis:** almacenar en caché las consultas de juegos más populares para reducir lecturas en MongoDB.
-- **Documentación Interactiva:** integración con Swagger / OpenAPI en `/swagger-ui.html`.
 - **Contenedores:** creación de `Dockerfile` y configuración en `docker-compose.yml` junto con MongoDB.
 
 ---
